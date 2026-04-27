@@ -1,88 +1,90 @@
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import sqlite3
-from datetime import datetime
-import json
+import React, { useEffect, useRef, useState } from "react";
 
-app = FastAPI(title="Stock Trade Scanner")
+export default function TradingDashboard() {
+  const containerRef = useRef(null);
+  const socketRef = useRef(null);
+  const [connected, setConnected] = useState(false);
+  const [latestSignal, setLatestSignal] = useState(null);
 
-# Allow frontend to connect (update with your Render static site URL later)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Change to specific domain in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+  useEffect(() => {
+    // ---------------- WebSocket ----------------
+    const socket = new WebSocket("ws://localhost:8000/ws");
+    socketRef.current = socket;
 
-class Signal(BaseModel):
-    action: str
-    symbol: str
-    exchange: str | None = None
-    timeframe: str
-    price: float
-    timestamp: str
+    socket.onopen = () => {
+      setConnected(true);
+      console.log("WebSocket connected");
+    };
 
-# Simple DB setup
-conn = sqlite3.connect("signals.db", check_same_thread=False)
-conn.execute("""
-    CREATE TABLE IF NOT EXISTS signals (
-        id INTEGER PRIMARY KEY,
-        action TEXT,
-        symbol TEXT,
-        exchange TEXT,
-        timeframe TEXT,
-        price REAL,
-        timestamp TEXT,
-        received_at TEXT
-    )
-""")
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setLatestSignal(data);
+      } catch (err) {
+        console.error("Invalid message", err);
+      }
+    };
 
-@app.post("/webhook")
-async def receive_webhook(request: Request):
-    try:
-        body = await request.body()
-        data = json.loads(body.decode()) if body else await request.json()
-        
-        signal = {
-            "action": data.get("action"),
-            "symbol": data.get("symbol"),
-            "exchange": data.get("exchange"),
-            "timeframe": data.get("timeframe"),
-            "price": float(data.get("price", 0)),
-            "timestamp": data.get("timestamp"),
-            "received_at": datetime.utcnow().isoformat()
-        }
-        
-        # Save to DB
-        conn.execute("""
-            INSERT INTO signals (action, symbol, exchange, timeframe, price, timestamp, received_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (signal["action"], signal["symbol"], signal["exchange"], 
-              signal["timeframe"], signal["price"], signal["timestamp"], signal["received_at"]))
-        conn.commit()
-        
-        print(f"New signal received: {signal}")
-        # TODO: Later add WebSocket broadcast here for live updates
-        
-        return {"status": "success", "signal": signal}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    socket.onclose = () => {
+      setConnected(false);
+      console.log("WebSocket disconnected");
+    };
 
-@app.get("/signals")
-def get_recent_signals(limit: int = 50):
-    cursor = conn.execute("SELECT * FROM signals ORDER BY received_at DESC LIMIT ?", (limit,))
-    columns = [col[0] for col in cursor.description]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return () => socket.close();
+  }, []);
 
-@app.get("/")
-def home():
-    return {
-        "status": "running",
-        "endpoints": ["/webhook", "/signals"]
-    }
+  useEffect(() => {
+    // ---------------- TradingView Widget ----------------
+    if (!containerRef.current) return;
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    containerRef.current.innerHTML = "";
+
+    const script = document.createElement("script");
+    script.src = "https://s3.tradingview.com/tv.js";
+    script.async = true;
+    script.onload = () => {
+      if (window.TradingView) {
+        new window.TradingView.widget({
+          width: "100%",
+          height: 600,
+          symbol: "NASDAQ:AAPL",
+          interval: "1",
+          timezone: "Etc/UTC",
+          theme: "dark",
+          style: "1",
+          locale: "en",
+          toolbar_bg: "#1e1e1e",
+          enable_publishing: false,
+          hide_top_toolbar: false,
+          hide_legend: false,
+          save_image: false,
+          container_id: containerRef.current,
+        });
+      }
+    };
+
+    document.body.appendChild(script);
+  }, []);
+
+  return (
+    <div style={{ padding: 20, fontFamily: "Arial" }}>
+      <h1>📊 Live Trading Dashboard</h1>
+
+      <div style={{ marginBottom: 10 }}>
+        Status: {connected ? "🟢 Live" : "🔴 Disconnected"}
+      </div>
+
+      {latestSignal && (
+        <div style={{ padding: 10, background: "#111", color: "#0f0", marginBottom: 20 }}>
+          <div>Latest Signal</div>
+          <div>
+            {latestSignal.action} {latestSignal.symbol} @ {latestSignal.price}
+          </div>
+        </div>
+      )}
+
+      {/* TradingView Chart */}
+      <div ref={containerRef} />
+    </div>
+  );
+}
