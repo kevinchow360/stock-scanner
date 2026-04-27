@@ -1,0 +1,99 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.app {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #0f0f0f;
+  color: #ffffff;
+  min-height: 100vh;
+}
+
+.header {
+  text-align: center;
+  padding: 20px;
+  background-color: #1a1a1a;
+  border-bottom: 1px solid #333;
+}
+
+.header h1 {
+  margin-bottom: 8px;
+}
+
+.dashboard {
+  display: flex;
+  height: calc(100vh - 120px);
+  gap: 10px;
+  padding: 10px;
+}
+
+.scanner-panel {
+  width: 420px;
+  background-color: #1a1a1a;
+  border-radius: 8px;
+  padding: 15px;
+  overflow-y: auto;
+}
+
+.chart-panel {
+  flex: 1;
+  background-color: #1a1a1a;
+  border-radius: 8px;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.signals-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.signals-table th, .signals-table td {
+  padding: 12px 8px;
+  text-align: left;
+  border-bottom: 1px solid #333;
+}
+
+.signals-table th {
+  background-color: #252525;
+}
+
+.action {
+  font-weight: bold;
+}
+
+.long { color: #22c55e; }
+.short { color: #ef4444; }
+
+tr:hover {
+  background-color: #252525;
+  cursor: pointer;
+}
+
+.selected {
+  background-color: #3b82f6 !important;
+}
+
+.refresh-btn {
+  padding: 6px 12px;
+  background-color: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.chart-container {
+  flex: 1;
+  min-height: 600px;
+}
