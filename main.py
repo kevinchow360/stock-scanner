@@ -52,13 +52,13 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 @app.websocket("/ws")
-async def ws_endpoint(ws: WebSocket):
-    await manager.connect(ws)
+async def ws_endpoint(websocket: WebSocket):
+    await websocket.accept()
     try:
         while True:
-            await ws.receive_text()
+            await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(ws)
+        pass
 
 # ---------------- WEBHOOK ----------------
 @app.post("/webhook")
