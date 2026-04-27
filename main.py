@@ -76,6 +76,13 @@ def get_recent_signals(limit: int = 50):
     columns = [col[0] for col in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
+@app.get("/")
+def home():
+    return {
+        "status": "running",
+        "endpoints": ["/webhook", "/signals"]
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
