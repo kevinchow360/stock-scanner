@@ -1,90 +1,101 @@
-import React, { useEffect, useRef, useState } from "react";
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+import sqlite3
+from datetime import datetime
+import json
+import asyncio
 
-export default function TradingDashboard() {
-  const containerRef = useRef(null);
-  const socketRef = useRef(null);
-  const [connected, setConnected] = useState(false);
-  const [latestSignal, setLatestSignal] = useState(null);
+app = FastAPI(title="Stock Trade Scanner")
 
-  useEffect(() => {
-    // ---------------- WebSocket ----------------
-    const socket = new WebSocket("ws://localhost:8000/ws");
-    socketRef.current = socket;
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    socket.onopen = () => {
-      setConnected(true);
-      console.log("WebSocket connected");
-    };
+# ---------------- DB ----------------
+conn = sqlite3.connect("signals.db", check_same_thread=False)
+conn.execute("""
+    CREATE TABLE IF NOT EXISTS signals (
+        id INTEGER PRIMARY KEY,
+        action TEXT,
+        symbol TEXT,
+        exchange TEXT,
+        timeframe TEXT,
+        price REAL,
+        timestamp TEXT,
+        received_at TEXT
+    )
+""")
 
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setLatestSignal(data);
-      } catch (err) {
-        console.error("Invalid message", err);
-      }
-    };
+# ---------------- WebSocket ----------------
+class ConnectionManager:
+    def __init__(self):
+        self.active = []
 
-    socket.onclose = () => {
-      setConnected(false);
-      console.log("WebSocket disconnected");
-    };
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self.active.append(ws)
 
-    return () => socket.close();
-  }, []);
+    def disconnect(self, ws: WebSocket):
+        self.active.remove(ws)
 
-  useEffect(() => {
-    // ---------------- TradingView Widget ----------------
-    if (!containerRef.current) return;
+    async def broadcast(self, msg):
+        for c in self.active:
+            try:
+                await c.send_json(msg)
+            except:
+                pass
 
-    containerRef.current.innerHTML = "";
+manager = ConnectionManager()
 
-    const script = document.createElement("script");
-    script.src = "https://s3.tradingview.com/tv.js";
-    script.async = true;
-    script.onload = () => {
-      if (window.TradingView) {
-        new window.TradingView.widget({
-          width: "100%",
-          height: 600,
-          symbol: "NASDAQ:AAPL",
-          interval: "1",
-          timezone: "Etc/UTC",
-          theme: "dark",
-          style: "1",
-          locale: "en",
-          toolbar_bg: "#1e1e1e",
-          enable_publishing: false,
-          hide_top_toolbar: false,
-          hide_legend: false,
-          save_image: false,
-          container_id: containerRef.current,
-        });
-      }
-    };
+@app.websocket("/ws")
+async def ws_endpoint(ws: WebSocket):
+    await manager.connect(ws)
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(ws)
 
-    document.body.appendChild(script);
-  }, []);
+# ---------------- WEBHOOK ----------------
+@app.post("/webhook")
+async def webhook(request: Request):
+    data = await request.json()
 
-  return (
-    <div style={{ padding: 20, fontFamily: "Arial" }}>
-      <h1>📊 Live Trading Dashboard</h1>
+    signal = {
+        "action": data.get("action"),
+        "symbol": data.get("symbol"),
+        "exchange": data.get("exchange"),
+        "timeframe": data.get("timeframe"),
+        "price": float(data.get("price", 0)),
+        "timestamp": data.get("timestamp"),
+        "received_at": datetime.utcnow().isoformat()
+    }
 
-      <div style={{ marginBottom: 10 }}>
-        Status: {connected ? "🟢 Live" : "🔴 Disconnected"}
-      </div>
+    conn.execute("""
+        INSERT INTO signals (action, symbol, exchange, timeframe, price, timestamp, received_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        signal["action"], signal["symbol"], signal["exchange"],
+        signal["timeframe"], signal["price"],
+        signal["timestamp"], signal["received_at"]
+    ))
+    conn.commit()
 
-      {latestSignal && (
-        <div style={{ padding: 10, background: "#111", color: "#0f0", marginBottom: 20 }}>
-          <div>Latest Signal</div>
-          <div>
-            {latestSignal.action} {latestSignal.symbol} @ {latestSignal.price}
-          </div>
-        </div>
-      )}
+    asyncio.create_task(manager.broadcast(signal))
 
-      {/* TradingView Chart */}
-      <div ref={containerRef} />
-    </div>
-  );
-}
+    return {"status": "ok", "signal": signal}
+
+# ---------------- SIGNALS ----------------
+@app.get("/signals")
+def signals(limit: int = 50):
+    cur = conn.execute("SELECT * FROM signals ORDER BY received_at DESC LIMIT ?", (limit,))
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+@app.get("/")
+def home():
+    return {"status": "running"}
