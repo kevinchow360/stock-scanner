@@ -17,7 +17,8 @@ interface Signal {
 function App() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [currentSignal, setCurrentSignal] = useState<Signal | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); 
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const fetchSignals = async () => {
     try {
@@ -30,6 +31,27 @@ function App() {
     }
   };
 
+function getColor(rsi: number) {
+  if (rsi > 60) return "#00ff88";
+  if (rsi >= 50) return "#ffa500";
+  return "#ff4d4d";
+}
+
+function calcRSI(prices: number[], period = 14) {
+  if (prices.length < period + 1) return 50;
+
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = prices.length - period; i < prices.length; i++) {
+    const diff = prices[i] - prices[i - 1];
+    if (diff >= 0) gains += diff;
+    else losses -= diff;
+  }
+
+  const rs = gains / (losses || 1);
+  return 100 - 100 / (1 + rs);
+}
   useEffect(() => {
     fetchSignals();
     const interval = setInterval(fetchSignals, 5000);
@@ -41,6 +63,58 @@ function App() {
       setCurrentSignal(signals[0]);
     }
   }, [signals]);
+
+useEffect(() => {
+  const canvas = canvasRef.current;
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  function draw() {
+    if (!emaData.length) return;
+
+    canvas.width = canvas.clientWidth;
+    canvas.height = 220;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const prices = emaData.map(d => d.price);
+    const max = Math.max(...prices);
+    const min = Math.min(...prices);
+
+    const scaleY = (v: number) =>
+      canvas.height - ((v - min) / (max - min)) * canvas.height;
+
+    const scaleX = (i: number) =>
+      (i / (emaData.length - 1)) * canvas.width;
+
+    function drawSeries(
+      emaKey: "ema15" | "ema1h" | "ema3h",
+      rsiKey: "rsi15" | "rsi1h" | "rsi3h"
+    ) {
+      for (let i = 1; i < emaData.length; i++) {
+        const prev = emaData[i - 1];
+        const curr = emaData[i];
+
+        ctx.beginPath();
+        ctx.strokeStyle = getColor(curr[rsiKey]);
+        ctx.lineWidth = 2;
+
+        ctx.moveTo(scaleX(i - 1), scaleY(prev[emaKey]));
+        ctx.lineTo(scaleX(i), scaleY(curr[emaKey]));
+
+        ctx.stroke();
+      }
+    }
+
+    drawSeries("ema15", "rsi15");
+    drawSeries("ema1h", "rsi1h");
+    drawSeries("ema3h", "rsi3h");
+  }
+
+  draw();
+}, [emaData]);
 
   const loadChart = (signal: Signal) => {
     setCurrentSignal(signal);
@@ -70,6 +144,20 @@ function App() {
   };
 
  const tvInterval = getValidInterval(currentSignal?.timeframe);
+
+<div className="box">
+  <h3>📊 EMA + RSI Canvas Chart</h3>
+
+  <canvas
+    ref={canvasRef}
+    style={{
+      width: "100%",
+      height: "220px",
+      background: "#111",
+      borderRadius: "8px"
+    }}
+  />
+</div>
 
   return (
     <div className="app">
