@@ -16,7 +16,7 @@ app.add_middleware(
 )
 
 # ---------------- DB ----------------
-conn = sqlite3.connect("signals.db", check_same_thread=False)
+conn = sqlite3.connect("/var/data/signals.db", check_same_thread=False)
 conn.execute("""
     CREATE TABLE IF NOT EXISTS signals (
         id INTEGER PRIMARY KEY,
